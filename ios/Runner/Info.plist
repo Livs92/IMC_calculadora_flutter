@@ -45,5 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Precisamos do microfone para ditar os valores de peso e altura.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Precisamos de reconhecimento de fala para converter sua fala em números no teclado.</string>
+	
 </dict>
 </plist>

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+// ADIÇÃO: fala-para-texto
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() => runApp(const BMIApp());
 
@@ -594,6 +596,31 @@ class _NumericKeypad extends StatefulWidget {
 class _NumericKeypadState extends State<_NumericKeypad> {
   static const int _maxLen = 6;
 
+  // ADIÇÕES: fala-para-texto
+  final stt.SpeechToText _stt = stt.SpeechToText();
+  bool _available = false;
+  bool _listening = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    _available = await _stt.initialize(
+      onStatus: (s) {
+        if (s == 'done' || s == 'notListening') {
+          setState(() => _listening = false);
+        }
+      },
+      onError: (e) {
+        setState(() => _listening = false);
+      },
+    );
+    setState(() {});
+  }
+
   String get _text => widget.controller.text;
 
   void _setText(String v) {
@@ -617,6 +644,138 @@ class _NumericKeypadState extends State<_NumericKeypad> {
 
   void _clear() => _setText('');
 
+  // ADIÇÃO: toggle do ditado
+  Future<void> _toggleListen() async {
+    if (_listening) {
+      await _stt.stop();
+      setState(() => _listening = false);
+      return;
+    }
+    if (!_available) return;
+
+    setState(() => _listening = true);
+
+    await _stt.listen(
+      localeId: 'pt_BR',
+      onResult: (res) {
+        final spoken = res.recognizedWords;
+        final parsed = _parsePortugueseNumber(spoken);
+        if (parsed.isNotEmpty) {
+          final sanitized = _sanitize(parsed);
+          _setText(sanitized);
+        }
+      },
+      listenMode: stt.ListenMode.dictation,
+      partialResults: true,
+      cancelOnError: true,
+    );
+  }
+
+  // ADIÇÃO: sanitização e parser simples para pt-BR
+  String _sanitize(String v) {
+    final only = v.replaceAll(RegExp(r'[^0-9,]'), '');
+    if (only.isEmpty) return '';
+    // evita dois decimais
+    final firstComma = only.indexOf(',');
+    String out = only;
+    if (firstComma != -1) {
+      final before = only.substring(0, firstComma + 1);
+      final after = only.substring(firstComma + 1).replaceAll(',', '');
+      out = before + after;
+    }
+    // aplica tamanho máximo
+    return out.substring(0, out.length.clamp(0, _maxLen));
+  }
+
+  /// Ex.: "setenta e dois vírgula cinco" -> "72,5"
+  String _parsePortugueseNumber(String input) {
+    var s = input.toLowerCase().trim();
+
+    s = s
+        .replaceAll('ponto', ',')
+        .replaceAll('vírgula', ',')
+        .replaceAll('virgula', ',')
+        .replaceAll('metros', '')
+        .replaceAll('metro', '')
+        .replaceAll('centímetros', '')
+        .replaceAll('centimetros', '')
+        .replaceAll('centímetro', '')
+        .replaceAll('centimetro', '')
+        .replaceAll('quilos', '')
+        .replaceAll('quilo', '');
+
+    final direct = RegExp(r'(\d+[.,]?\d*)').firstMatch(s);
+    if (direct != null) {
+      return direct.group(1)!.replaceAll('.', ',');
+    }
+
+    const map = {
+      'zero': 0,
+      'um': 1,
+      'uma': 1,
+      'dois': 2,
+      'duas': 2,
+      'três': 3,
+      'tres': 3,
+      'quatro': 4,
+      'cinco': 5,
+      'seis': 6,
+      'sete': 7,
+      'oito': 8,
+      'nove': 9,
+      'dez': 10,
+      'onze': 11,
+      'doze': 12,
+      'treze': 13,
+      'quatorze': 14,
+      'catorze': 14,
+      'quinze': 15,
+      'dezesseis': 16,
+      'dezessete': 17,
+      'dezoito': 18,
+      'dezenove': 19,
+      'vinte': 20,
+      'trinta': 30,
+      'quarenta': 40,
+      'cinquenta': 50,
+      'sessenta': 60,
+      'setenta': 70,
+      'oitenta': 80,
+      'noventa': 90,
+      'cem': 100,
+    };
+
+    int acc = 0;
+    int current = 0;
+
+    for (final raw in s.split(RegExp(r'\s+'))) {
+      final w = raw.trim();
+      if (w.isEmpty || w == 'e' || w == ',') continue;
+
+      if (map.containsKey(w)) {
+        current += map[w]!;
+        continue;
+      }
+
+      if (current > 0) {
+        acc += current;
+        current = 0;
+      }
+    }
+    if (current > 0) acc += current;
+
+    if (acc == 0) return '';
+    if (s.contains(',')) {
+      final after = s.split(',').last;
+      final mDec = RegExp(r'(\d+)').firstMatch(after);
+      if (mDec != null) {
+        final dec = mDec.group(1)!;
+        return '$acc,${dec.substring(0, 2)}';
+      }
+    }
+    return '$acc';
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -637,6 +796,17 @@ class _NumericKeypadState extends State<_NumericKeypad> {
                   ),
                 ),
                 const Spacer(),
+
+                // ADIÇÃO: botão de microfone
+                IconButton(
+                  tooltip: _listening ? 'Parar de ouvir' : 'Ditado por voz',
+                  onPressed: _available ? _toggleListen : null,
+                  icon: Icon(
+                    _listening ? Icons.stop_circle_outlined : Icons.mic_none,
+                  ),
+                ),
+                const SizedBox(width: 4),
+
                 TextButton(onPressed: _clear, child: const Text('Clear')),
                 const SizedBox(width: 4),
                 FilledButton(
